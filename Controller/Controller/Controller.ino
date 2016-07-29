@@ -7,20 +7,22 @@ const int CALIBRATE_TIME = 200;
 XBee xbee = XBee();
 SoftwareSerial nss(8, 9);
 uint8_t payload[8];
+
 // SH + SL Address of receiving XBee
 XBeeAddress64 addr64 = XBeeAddress64(0x0013a200, 0x40c67584);
 ZBTxRequest packet = ZBTxRequest(addr64, payload, sizeof(payload));
 ZBTxStatusResponse txStatus = ZBTxStatusResponse();
+
 boolean mode = RATE_MODE;
 boolean changed = false;
 
 void setup() {
-  //start serials
+  // start serials
   Serial.begin(9600);
   nss.begin(9600);
   xbee.setSerial(nss);
 
-  //pin modes
+  // pin modes
   pinMode(THR_JOYSTICK, INPUT);
   pinMode(YAW_JOYSTICK, INPUT);
   pinMode(ROLL_JOYSTICK, INPUT);
@@ -29,63 +31,18 @@ void setup() {
   pinMode(TOGGLE, INPUT);
   pinMode(SPEAKER_PIN, OUTPUT);
 
-  //delay to allow inputs to settle
+  // delay to allow inputs to settle
   delay(1000);
 
-  //the speaker will need a total resistance of at least 125 Ohm
-  //so if it's an 8 Ohm speaker, an additional 117 is needed etc...
+  // the speaker will need a total resistance of at least 125 Ohm
+  // so if it's an 8 Ohm speaker, an additional 117 is needed etc...
 
-  //calibrate THR
-  int start = millis();
-  tone(SPEAKER_PIN, NOTE_A3);
-  int reading = analogRead(THR_JOYSTICK);
-  while (reading > THR_OFFSET + 5 || reading < THR_OFFSET - 5) {
-    delay(20);
-    reading = analogRead(THR_JOYSTICK);
-  }
-  int dif = CALIBRATE_TIME - millis() + start;
-  if (dif <= CALIBRATE_TIME && dif >= 0) {
-    delay(dif);
-  }
-
-  //calibrate YAW
-  start = millis();
-  tone(SPEAKER_PIN, NOTE_B3);
-  reading = analogRead(YAW_JOYSTICK);
-  while (reading > YAW_OFFSET + 5 || reading < YAW_OFFSET - 5) {
-    delay(20);
-    reading = analogRead(YAW_JOYSTICK);
-  }
-  dif = CALIBRATE_TIME - millis() + start;
-  if (dif <= CALIBRATE_TIME && dif >= 0) {
-    delay(dif);
-  }
-
-  //calibrate FB
-  start = millis();
-  tone(SPEAKER_PIN, NOTE_C4);
-  reading = analogRead(PITCH_JOYSTICK);
-  while (reading > PITCH_OFFSET + 5 || reading < PITCH_OFFSET - 5) {
-    delay(20);
-    reading = analogRead(PITCH_JOYSTICK);
-  }
-  dif = CALIBRATE_TIME - millis() + start;
-  if (dif <= CALIBRATE_TIME && dif >= 0) {
-    delay(dif);
-  }
-
-  //calibrate RL
-  start = millis();
-  tone(SPEAKER_PIN, NOTE_D4);
-  reading = analogRead(ROLL_JOYSTICK);
-  while (reading > ROLL_OFFSET + 5 || reading < ROLL_OFFSET - 5) {
-    delay(20);
-    reading = analogRead(ROLL_JOYSTICK);
-  }
-  dif = CALIBRATE_TIME - millis() + start;
-  if (dif <= CALIBRATE_TIME && dif >= 0) {
-    delay(dif);
-  }
+  // Wait for inputs to settle. Wait for each input to be within +-5 of 
+  // its offset value as defined in Constants.h, calculated with Calibrator.ino
+  waitUntilSettled(THR_JOYSTICK, THR_OFFSET, NOTE_A3);
+  waitUntilSettled(YAW_JOYSTICK, YAW_OFFSET, NOTE_B3);
+  waitUntilSettled(PITCH_JOYSTICK, PITCH_OFFSET, NOTE_C4);
+  waitUntilSettled(ROLL_JOYSTICK, ROLL_OFFSET, NOTE_D4);
 
   //done
   tone(SPEAKER_PIN, NOTE_E4);
@@ -117,9 +74,7 @@ void loop() {
   int potValue = analogRead(POT);
   int throttleValue = mapLimit(analogRead(THR_JOYSTICK) - THR_OFFSET, THR_MIN, THR_OFFSET, THR_MAX, ESC_MIN, ESC_OFFSET);
   //disallow throttles less than min
-  if (throttleValue < ESC_MIN) {
-    throttleValue = ESC_MIN;
-  }
+  throttleValue = min(ESC_MIN, throttleValue);
 
   int yawValue = mapLimit(analogRead(YAW_JOYSTICK) - YAW_OFFSET, YAW_MIN, YAW_OFFSET, YAW_MAX, 0, map(potValue, 0, 1023, (mode == RATE_MODE) ? RATE_MIN : ANGLE_MIN, (mode == RATE_MODE) ? RATE_MAX : ANGLE_MAX));
   int rollValue = -mapLimit(analogRead(ROLL_JOYSTICK) - ROLL_OFFSET, ROLL_MIN, ROLL_OFFSET, ROLL_MAX, 0, map(potValue, 0, 1023, (mode == RATE_MODE) ? RATE_MIN : ANGLE_MIN, (mode == RATE_MODE) ? RATE_MAX : ANGLE_MAX));
@@ -193,6 +148,31 @@ void loop() {
   }
 }
 
+/**
+ * Waits for the value on pin to settle within 5 of offeset.
+ * Plays note during delay and will never take less than
+ * CALIBRATE_TIME to run.
+ */
+void waitUntilSettled(int pin, int offset, int note) {
+  int start = millis();
+  tone(SPEAKER_PIN, note);
+  
+  int reading = analogRead(pin);
+  while (abs(reading - offset) > 5) {
+    delay(20);
+    reading = analogRead(pin);
+  }
+  
+  int dif = CALIBRATE_TIME - millis() + start;
+  if (dif <= CALIBRATE_TIME && dif >= 0) {
+    delay(dif);
+  }
+}
+
+/**
+ * Maps a value, val, on a scale of fromLow to fromHigh, with an offset, to
+ * a range of toLow to toHigh, returning a maximum value of toHigh
+ */
 int mapLimit(int val, int fromLow, int fromOffset, int fromHigh, int toLow, int toHigh) {
   int result;
 
